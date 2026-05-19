@@ -44,6 +44,23 @@ def load_base_language(assets_dir):
         print("Warning: en-US base language file not found, fallback mechanism disabled")
     return {'strings': {}}
 
+def load_language_file(assets_dir, lang_code):
+    """Load a language JSON file if it exists."""
+    lang_path = os.path.join(assets_dir, 'locales', lang_code, 'language.json')
+    if os.path.exists(lang_path):
+        try:
+            with open(lang_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Warning: Failed to parse {lang_code} language file: {e}")
+    return {'strings': {}}
+
+def format_cpp_comment(text):
+    """Format text as a single-line C++ comment."""
+    if not text:
+        return ""
+    return str(text).replace('\r', ' ').replace('\n', ' ').replace('*/', '* /')
+
 def get_sound_files(directory):
     """获取目录中的音效文件列表"""
     if not os.path.exists(directory):
@@ -78,6 +95,7 @@ def generate_header(lang_code, output_path):
 
     # 加载 en-US 基准语言数据
     base_data = load_base_language(assets_dir)
+    zh_cn_data = load_language_file(assets_dir, 'zh-CN')
     
     # 合并字符串：以 en-US 为基准，用户语言覆盖
     base_strings = base_data.get('strings', {})
@@ -103,7 +121,10 @@ def generate_header(lang_code, output_path):
     sounds = []
     for key, value in merged_strings.items():
         value = value.replace('"', '\\"')
-        strings.append(f'        constexpr const char* {key.upper()} = "{value}";')
+        zh_cn_value = zh_cn_data.get('strings', {}).get(key, '')
+        zh_cn_comment = format_cpp_comment(zh_cn_value)
+        comment = f'  // {zh_cn_comment}' if zh_cn_comment else ''
+        strings.append(f'        constexpr const char* {key.upper()} = "{value}";{comment}')
 
     # 收集音效文件：以 en-US 为基准，用户语言覆盖
     current_lang_dir = os.path.join(assets_dir, 'locales', lang_code)

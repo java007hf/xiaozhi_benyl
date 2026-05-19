@@ -16,6 +16,7 @@ set(SOURCES "audio/audio_codec.cc"
             "display/display.cc"
             "display/lcd_display.cc"
             "display/oled_display.cc"
+            "display/raw_oled_display.cc"
             "display/lvgl_display/lvgl_display.cc"
             "display/emote_display.cc"
             "display/lvgl_display/emoji_collection.cc"
@@ -48,7 +49,6 @@ list(APPEND SOURCES
     "boards/common/ml307_board.cc"
     "boards/common/nt26_board.cc"
     "boards/common/dual_network_board.cc"
-    "boards/common/adc_battery_monitor.cc"
     "boards/common/afsk_demod.cc"
     "boards/common/axp2101.cc"
     "boards/common/backlight.cc"
@@ -62,6 +62,10 @@ list(APPEND SOURCES
     "boards/common/system_reset.cc"
 )
 list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/common)
+
+if(NOT CONFIG_BOARD_TYPE_BREAD_COMPACT_ESP32)
+    list(APPEND SOURCES "boards/common/adc_battery_monitor.cc")
+endif()
 
 
 idf_build_get_property(build_components BUILD_COMPONENTS)
@@ -991,6 +995,7 @@ idf_component_register(SRCS ${SOURCES}
                         esp_driver_spi
                         esp_driver_i2c
                         esp_driver_i2s
+                        esp_driver_ledc
                         esp_driver_jpeg
                         esp_driver_ppa
                         esp_app_format
@@ -1000,6 +1005,7 @@ idf_component_register(SRCS ${SOURCES}
                         efuse
                         bt
                         fatfs
+                        ssd1306_spi
                         ${MAIN_PRIV_REQUIRES_EXTRA}
                     )
 

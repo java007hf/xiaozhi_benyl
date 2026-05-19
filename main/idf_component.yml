@@ -1,11 +1,29 @@
 ## IDF Component Manager Manifest File
 dependencies:
-  waveshare/esp_lcd_sh8601: 1.0.2
-  espressif/esp_lcd_co5300: ^2.0.3
-  espressif/esp_lcd_ili9341: ==1.2.0
-  espressif/esp_lcd_gc9a01: ==2.0.1
-  espressif/esp_lcd_st77916: ^1.0.1
-  espressif/esp_lcd_axs15231b: ^1.0.0
+  waveshare/esp_lcd_sh8601:
+    version: 1.0.2
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_co5300:
+    version: ^2.0.3
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_ili9341:
+    version: ==1.2.0
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_gc9a01:
+    version: ==2.0.1
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_st77916:
+    version: ^1.0.1
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_axs15231b:
+    version: ^1.0.0
+    rules:
+    - if: target not in [esp32]
 
   espressif/esp_lcd_st7701:
     version: ^1.1.4
@@ -14,15 +32,32 @@ dependencies:
   espressif/esp_lcd_st7796:
     version: 1.3.5
     rules:
-    - if: target in [esp32, esp32s2, esp32s3, esp32p4]
-  espressif/esp_lcd_spd2010: ==1.0.2
-  espressif/esp_io_expander_tca9554: ==2.0.0
-  waveshare/custom_io_expander_ch32v003: ^1.0.0
-  espressif/esp_lcd_panel_io_additions: ^1.0.1
-  78/esp_lcd_nv3023: ~1.0.0
+    - if: target in [esp32s2, esp32s3, esp32p4]
+  espressif/esp_lcd_spd2010:
+    version: ==1.0.2
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_io_expander_tca9554:
+    version: ==2.0.0
+    rules:
+    - if: target not in [esp32]
+  waveshare/custom_io_expander_ch32v003:
+    version: ^1.0.0
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_panel_io_additions:
+    version: ^1.0.1
+    rules:
+    - if: target not in [esp32]
+  78/esp_lcd_nv3023:
+    version: ~1.0.0
+    rules:
+    - if: target in [esp32c3, esp32s3]
   78/esp-wifi-connect: ~3.1.3
+  espressif/mqtt: ^1.0.0
   espressif/esp_audio_effects: ~1.2.1
   espressif/esp_audio_codec: ~2.4.1
+  78/esp-ml307: ~3.6.5
   # 78/esp-ml307: ~3.6.5  # 4G模块，已禁用（用户不需要4G）
   # 78/uart-eth-modem: ~0.4.0  # 4G模块，已禁用（用户不需要4G）
   78/xiaozhi-fonts: ~1.6.0
@@ -44,14 +79,32 @@ dependencies:
     version: ^1.0.1
     rules:
     - if: target not in [esp32]
-  espressif/esp_lcd_touch_ft5x06: ~1
-  espressif/esp_lcd_touch_gt911: ^1
-  espressif/esp_lcd_touch_gt1151: ^1
-  waveshare/esp_lcd_touch_cst9217: ^1.0.3
-  espressif/esp_lcd_touch_cst816s: ^1
+  espressif/esp_lcd_touch_ft5x06:
+    version: ~1
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_touch_gt911:
+    version: ^1
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_touch_gt1151:
+    version: ^1
+    rules:
+    - if: target not in [esp32]
+  waveshare/esp_lcd_touch_cst9217:
+    version: ^1.0.3
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_lcd_touch_cst816s:
+    version: ^1
+    rules:
+    - if: target not in [esp32]
   lvgl/lvgl: ~9.5.0
   esp_lvgl_port: ~2.7.2
-  espressif/esp_io_expander_tca95xx_16bit: ^2.0.0
+  espressif/esp_io_expander_tca95xx_16bit:
+    version: ^2.0.0
+    rules:
+    - if: target not in [esp32]
   espressif2022/image_player: ^1.1.1
   espressif2022/esp_emote_expression: 1.0.1
   espressif2022/esp_emote_gfx: 3.0.5
@@ -60,8 +113,14 @@ dependencies:
     version: ^1.1.1
     rules:
     - if: target in [esp32s3]
-  espressif/adc_battery_estimation: ^0.2.1
-  espressif/esp_new_jpeg: 1.*
+  espressif/adc_battery_estimation:
+    version: ^0.2.1
+    rules:
+    - if: target not in [esp32]
+  espressif/esp_new_jpeg:
+    version: 1.*
+    rules:
+    - if: target not in [esp32]
 
   # SenseCAP Watcher Board
   wvirgil123/sscma_client:

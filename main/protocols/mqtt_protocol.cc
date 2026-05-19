@@ -6,12 +6,17 @@
 #include <esp_log.h>
 #include <cstring>
 #include <arpa/inet.h>
+#include <vector>
 #include "assets/lang_config.h"
 
 #define TAG "MQTT"
 
 MqttProtocol::MqttProtocol() {
     event_group_handle_ = xEventGroupCreate();
+    auto status = psa_crypto_init();
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to initialize PSA crypto, status: %d", (int)status);
+    }
 
     // Initialize reconnect timer
     esp_timer_create_args_t reconnect_timer_args = {
@@ -46,6 +51,11 @@ MqttProtocol::~MqttProtocol() {
 
     udp_.reset();
     mqtt_.reset();
+
+    if (aes_key_id_ != 0) {
+        psa_destroy_key(aes_key_id_);
+        aes_key_id_ = 0;
+    }
     
     if (event_group_handle_ != nullptr) {
         vEventGroupDelete(event_group_handle_);
@@ -178,10 +188,8 @@ bool MqttProtocol::SendAudio(std::unique_ptr<AudioStreamPacket> packet) {
     encrypted.resize(aes_nonce_.size() + packet->payload.size());
     memcpy(encrypted.data(), nonce.data(), nonce.size());
 
-    size_t nc_off = 0;
-    uint8_t stream_block[16] = {0};
-    if (mbedtls_aes_crypt_ctr(&aes_ctx_, packet->payload.size(), &nc_off, (uint8_t*)nonce.c_str(), stream_block,
-        (uint8_t*)packet->payload.data(), (uint8_t*)&encrypted[nonce.size()]) != 0) {
+    if (!AesCtrCrypt((uint8_t*)packet->payload.data(), packet->payload.size(),
+        (uint8_t*)nonce.c_str(), (uint8_t*)&encrypted[nonce.size()])) {
         ESP_LOGE(TAG, "Failed to encrypt audio data");
         return false;
     }
@@ -265,8 +273,6 @@ bool MqttProtocol::OpenAudioChannel() {
         }
 
         size_t decrypted_size = data.size() - aes_nonce_.size();
-        size_t nc_off = 0;
-        uint8_t stream_block[16] = {0};
         auto nonce = (uint8_t*)data.data();
         auto encrypted = (uint8_t*)data.data() + aes_nonce_.size();
         auto packet = std::make_unique<AudioStreamPacket>();
@@ -274,9 +280,8 @@ bool MqttProtocol::OpenAudioChannel() {
         packet->frame_duration = server_frame_duration_;
         packet->timestamp = timestamp;
         packet->payload.resize(decrypted_size);
-        int ret = mbedtls_aes_crypt_ctr(&aes_ctx_, decrypted_size, &nc_off, nonce, stream_block, encrypted, (uint8_t*)packet->payload.data());
-        if (ret != 0) {
-            ESP_LOGE(TAG, "Failed to decrypt audio data, ret: %d", ret);
+        if (!AesCtrCrypt(encrypted, decrypted_size, nonce, (uint8_t*)packet->payload.data())) {
+            ESP_LOGE(TAG, "Failed to decrypt audio data");
             return;
         }
         if (on_incoming_audio_ != nullptr) {
@@ -358,11 +363,70 @@ void MqttProtocol::ParseServerHello(const cJSON* root) {
     // auto encryption = cJSON_GetObjectItem(udp, "encryption")->valuestring;
     // ESP_LOGI(TAG, "UDP server: %s, port: %d, encryption: %s", udp_server_.c_str(), udp_port_, encryption);
     aes_nonce_ = DecodeHexString(nonce);
-    mbedtls_aes_init(&aes_ctx_);
-    mbedtls_aes_setkey_enc(&aes_ctx_, (const unsigned char*)DecodeHexString(key).c_str(), 128);
+    auto aes_key = DecodeHexString(key);
+    if (aes_key_id_ != 0) {
+        psa_destroy_key(aes_key_id_);
+        aes_key_id_ = 0;
+    }
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_AES);
+    psa_set_key_bits(&attributes, aes_key.size() * 8);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT);
+    psa_set_key_algorithm(&attributes, PSA_ALG_CTR);
+    auto status = psa_import_key(&attributes, (const uint8_t*)aes_key.data(), aes_key.size(), &aes_key_id_);
+    psa_reset_key_attributes(&attributes);
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to import AES key, status: %d", (int)status);
+        return;
+    }
     local_sequence_ = 0;
     remote_sequence_ = 0;
     xEventGroupSetBits(event_group_handle_, MQTT_PROTOCOL_SERVER_HELLO_EVENT);
+}
+
+bool MqttProtocol::AesCtrCrypt(const uint8_t* input, size_t input_len, const uint8_t* nonce, uint8_t* output) {
+    if (aes_key_id_ == 0) {
+        return false;
+    }
+
+    psa_cipher_operation_t operation = PSA_CIPHER_OPERATION_INIT;
+    auto status = psa_cipher_encrypt_setup(&operation, aes_key_id_, PSA_ALG_CTR);
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to setup AES CTR, status: %d", (int)status);
+        return false;
+    }
+
+    status = psa_cipher_set_iv(&operation, nonce, aes_nonce_.size());
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to set AES nonce, status: %d", (int)status);
+        psa_cipher_abort(&operation);
+        return false;
+    }
+
+    std::vector<uint8_t> buffer(input_len + 16);
+    size_t output_len = 0;
+    status = psa_cipher_update(&operation, input, input_len, buffer.data(), buffer.size(), &output_len);
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to update AES CTR, status: %d", (int)status);
+        psa_cipher_abort(&operation);
+        return false;
+    }
+
+    size_t finish_len = 0;
+    status = psa_cipher_finish(&operation, buffer.data() + output_len, buffer.size() - output_len, &finish_len);
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to finish AES CTR, status: %d", (int)status);
+        psa_cipher_abort(&operation);
+        return false;
+    }
+
+    if (output_len + finish_len != input_len) {
+        ESP_LOGE(TAG, "AES CTR output size mismatch: %u != %u", (unsigned)(output_len + finish_len), (unsigned)input_len);
+        return false;
+    }
+
+    memcpy(output, buffer.data(), input_len);
+    return true;
 }
 
 static const char hex_chars[] = "0123456789ABCDEF";

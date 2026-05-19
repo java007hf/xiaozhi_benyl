@@ -1,7 +1,10 @@
 tmp/
-components/
+components/*
+!components/ssd1306_spi/
+!components/ssd1306_spi/**
 managed_components/
 build/
+build_*/
 dist/
 .vscode/
 .devcontainer/
