@@ -6,13 +6,46 @@
 #include "config.h"
 #include "mcp_server.h"
 #include "lamp_controller.h"
-#include "led/single_led.h"
+#include "led/led.h"
 #include "display/raw_oled_display.h"
 #include "ssd1306_spi.h"
 
 #include <esp_log.h>
 
 #define TAG "ESP32-MarsbearSupport"
+
+class MicStateLed : public Led {
+public:
+    MicStateLed(gpio_num_t gpio, int active_level) : gpio_(gpio), active_level_(active_level) {
+        if (gpio_ == GPIO_NUM_NC) {
+            return;
+        }
+        gpio_config_t io_conf = {
+            .pin_bit_mask = 1ULL << gpio_,
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE
+        };
+        gpio_config(&io_conf);
+        SetActive(false);
+    }
+
+    void OnStateChanged() override {
+        SetActive(Application::GetInstance().GetDeviceState() == kDeviceStateListening);
+    }
+
+private:
+    gpio_num_t gpio_;
+    int active_level_;
+
+    void SetActive(bool active) {
+        if (gpio_ == GPIO_NUM_NC) {
+            return;
+        }
+        gpio_set_level(gpio_, active ? active_level_ : !active_level_);
+    }
+};
 
 class CompactWifiBoard : public WifiBoard {
 private:
@@ -61,7 +94,6 @@ private:
                 EnterWifiConfigMode();
                 return;
             }
-            gpio_set_level(BUILTIN_LED_GPIO, 1);
             app.ToggleChatState();
         });
 
@@ -83,13 +115,15 @@ private:
         InitializeSsd1306Display();
         InitializeButtons();
         InitializeTools();
+        GetAudioCodec()->SetOutputVolume(AUDIO_DEFAULT_OUTPUT_VOLUME);
     }
 
     virtual AudioCodec* GetAudioCodec() override 
     {
 #ifdef AUDIO_I2S_METHOD_SIMPLEX
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
-            AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
+            AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT,
+            AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
 #else
         static NoAudioCodecDuplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN);
@@ -99,6 +133,11 @@ private:
 
     virtual Display* GetDisplay() override {
         return display_;
+    }
+
+    virtual Led* GetLed() override {
+        static MicStateLed led(MIC_ACTIVITY_LED_GPIO, MIC_ACTIVITY_LED_ACTIVE_LEVEL);
+        return &led;
     }
 
 };
