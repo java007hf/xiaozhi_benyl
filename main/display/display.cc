@@ -45,6 +45,11 @@ void Display::SetChatMessage(const char* role, const char* content) {
     ESP_LOGW(TAG, "     %s", content);
 }
 
+void Display::ShowBitmap(const char* title, int bitmap_width, int bitmap_height, const std::vector<std::string>& rows, int duration_ms) {
+    (void)duration_ms;
+    ESP_LOGW(TAG, "ShowBitmap not supported: %s %dx%d rows=%u", title ? title : "", bitmap_width, bitmap_height, static_cast<unsigned>(rows.size()));
+}
+
 void Display::ClearChatMessages() {
     // Default empty implementation, override in subclasses if needed
 }

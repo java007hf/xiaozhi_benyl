@@ -14,6 +14,7 @@
 
 #include <string>
 #include <chrono>
+#include <vector>
 
 class Theme {
 public:
@@ -35,6 +36,7 @@ public:
     virtual void ShowNotification(const std::string &notification, int duration_ms = 3000);
     virtual void SetEmotion(const char* emotion);
     virtual void SetChatMessage(const char* role, const char* content);
+    virtual void ShowBitmap(const char* title, int bitmap_width, int bitmap_height, const std::vector<std::string>& rows, int duration_ms = 15000);
     virtual void ClearChatMessages();
     virtual void SetTheme(Theme* theme);
     virtual Theme* GetTheme() { return current_theme_; }

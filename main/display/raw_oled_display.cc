@@ -4,6 +4,7 @@
 #include <cctype>
 
 #include <esp_log.h>
+#include <esp_err.h>
 
 #define TAG "RawOledDisplay"
 
@@ -13,9 +14,54 @@ RawOledDisplay::RawOledDisplay(ssd1306_spi_handle_t oled, int width, int height)
     height_ = height;
     mutex_ = xSemaphoreCreateMutex();
     status_ = "INITIALIZING";
+
+    esp_timer_create_args_t bitmap_timer_args = {
+        .callback = [](void* arg) {
+            static_cast<RawOledDisplay*>(arg)->OnBitmapTimer();
+        },
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "raw_oled_bitmap",
+        .skip_unhandled_events = true,
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&bitmap_timer_args, &bitmap_timer_));
+}
+
+static int HexValue(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return 0;
+}
+
+static bool IsBitmapPixelOn(const std::string& row, int width, int x) {
+    if (x < 0 || x >= width || row.empty()) {
+        return false;
+    }
+
+    int total_bits = static_cast<int>(row.size()) * 4;
+    int bit_index = total_bits - width + x;
+    if (bit_index < 0 || bit_index >= total_bits) {
+        return false;
+    }
+
+    int hex_index = bit_index / 4;
+    int bit_in_nibble = 3 - (bit_index % 4);
+    int value = HexValue(row[hex_index]);
+    return (value & (1 << bit_in_nibble)) != 0;
 }
 
 RawOledDisplay::~RawOledDisplay() {
+    if (bitmap_timer_ != nullptr) {
+        esp_timer_stop(bitmap_timer_);
+        esp_timer_delete(bitmap_timer_);
+    }
     if (mutex_ != nullptr) {
         vSemaphoreDelete(mutex_);
     }
@@ -65,6 +111,59 @@ void RawOledDisplay::SetChatMessage(const char* role, const char* content) {
     Render();
 }
 
+void RawOledDisplay::ShowBitmap(const char* title, int bitmap_width, int bitmap_height, const std::vector<std::string>& rows, int duration_ms) {
+    (void)title;
+    if (oled_ == nullptr || power_save_) {
+        return;
+    }
+    if (bitmap_width <= 0 || bitmap_height <= 0 || rows.size() < static_cast<size_t>(bitmap_height)) {
+        ESP_LOGW(TAG, "Invalid bitmap payload: %dx%d rows=%u", bitmap_width, bitmap_height, static_cast<unsigned>(rows.size()));
+        return;
+    }
+
+    DisplayLockGuard lock(this);
+    bitmap_overlay_active_ = true;
+    StopBitmapTimer();
+
+    ssd1306_spi_clear(oled_);
+
+    int available_width = width_;
+    int available_height = height_;
+    int scale = std::max(1, std::min(available_width / bitmap_width, available_height / bitmap_height));
+    int draw_width = bitmap_width * scale;
+    int draw_height = bitmap_height * scale;
+    int origin_x = std::max(0, (width_ - draw_width) / 2);
+    int origin_y = std::max(0, (height_ - draw_height) / 2);
+
+    for (int y = 0; y < bitmap_height; ++y) {
+        const auto& row = rows[y];
+        for (int x = 0; x < bitmap_width; ++x) {
+            if (!IsBitmapPixelOn(row, bitmap_width, x)) {
+                continue;
+            }
+            for (int sy = 0; sy < scale; ++sy) {
+                for (int sx = 0; sx < scale; ++sx) {
+                    ssd1306_spi_draw_pixel(oled_, origin_x + x * scale + sx, origin_y + y * scale + sy, true);
+                }
+            }
+        }
+    }
+
+    esp_err_t err = ssd1306_spi_flush(oled_);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to flush OLED bitmap: %s", esp_err_to_name(err));
+    }
+
+    int safe_duration_ms = std::max(1000, duration_ms);
+    bitmap_until_us_ = esp_timer_get_time() + static_cast<int64_t>(safe_duration_ms) * 1000;
+    if (bitmap_timer_ != nullptr) {
+        err = esp_timer_start_once(bitmap_timer_, static_cast<uint64_t>(safe_duration_ms) * 1000ULL);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to start bitmap timer: %s", esp_err_to_name(err));
+        }
+    }
+}
+
 void RawOledDisplay::ClearChatMessages() {
     DisplayLockGuard lock(this);
     role_.clear();
@@ -76,6 +175,9 @@ void RawOledDisplay::SetPowerSaveMode(bool on) {
     DisplayLockGuard lock(this);
     power_save_ = on;
     if (power_save_) {
+        StopBitmapTimer();
+        bitmap_overlay_active_ = false;
+        bitmap_until_us_ = 0;
         ssd1306_spi_clear(oled_);
         ssd1306_spi_flush(oled_);
         return;
@@ -84,7 +186,7 @@ void RawOledDisplay::SetPowerSaveMode(bool on) {
 }
 
 void RawOledDisplay::Render() {
-    if (oled_ == nullptr || power_save_) {
+    if (oled_ == nullptr || power_save_ || bitmap_overlay_active_) {
         return;
     }
 
@@ -139,4 +241,22 @@ std::string RawOledDisplay::Sanitize(const char* text, size_t max_len) const {
         return " ";
     }
     return result;
+}
+
+void RawOledDisplay::OnBitmapTimer() {
+    DisplayLockGuard lock(this);
+    int64_t now = esp_timer_get_time();
+    if (bitmap_overlay_active_ && bitmap_until_us_ > now) {
+        esp_timer_start_once(bitmap_timer_, static_cast<uint64_t>(bitmap_until_us_ - now));
+        return;
+    }
+    bitmap_overlay_active_ = false;
+    bitmap_until_us_ = 0;
+    Render();
+}
+
+void RawOledDisplay::StopBitmapTimer() {
+    if (bitmap_timer_ != nullptr) {
+        esp_timer_stop(bitmap_timer_);
+    }
 }

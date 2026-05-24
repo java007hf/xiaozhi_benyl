@@ -555,6 +555,32 @@ void Application::InitializeProtocol() {
                     display->SetChatMessage("user", message.c_str());
                 });
             }
+        } else if (strcmp(type->valuestring, "display_bitmap") == 0) {
+            auto width = cJSON_GetObjectItem(root, "width");
+            auto height = cJSON_GetObjectItem(root, "height");
+            auto rows_json = cJSON_GetObjectItem(root, "rows");
+            auto title = cJSON_GetObjectItem(root, "title");
+            auto duration = cJSON_GetObjectItem(root, "duration_ms");
+            if (cJSON_IsNumber(width) && cJSON_IsNumber(height) && cJSON_IsArray(rows_json)) {
+                std::vector<std::string> rows;
+                int row_count = cJSON_GetArraySize(rows_json);
+                rows.reserve(row_count);
+                for (int i = 0; i < row_count; ++i) {
+                    auto row = cJSON_GetArrayItem(rows_json, i);
+                    if (cJSON_IsString(row)) {
+                        rows.emplace_back(row->valuestring);
+                    }
+                }
+                std::string title_str = cJSON_IsString(title) ? title->valuestring : "BITMAP";
+                int bitmap_width = width->valueint;
+                int bitmap_height = height->valueint;
+                int duration_ms = cJSON_IsNumber(duration) ? duration->valueint : 15000;
+                Schedule([display, title_str, bitmap_width, bitmap_height, duration_ms, rows = std::move(rows)]() {
+                    display->ShowBitmap(title_str.c_str(), bitmap_width, bitmap_height, rows, duration_ms);
+                });
+            } else {
+                ESP_LOGW(TAG, "display_bitmap requires width, height and rows");
+            }
         } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
