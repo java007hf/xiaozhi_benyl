@@ -4,7 +4,9 @@
 #include <driver/gpio.h>
 
 #define AUDIO_INPUT_SAMPLE_RATE  16000
-#define AUDIO_OUTPUT_SAMPLE_RATE 16000
+// The server sends TTS Opus at 24 kHz. Keep microphone capture at 16 kHz,
+// but play decoded TTS at its native rate to avoid realtime resampling.
+#define AUDIO_OUTPUT_SAMPLE_RATE 24000
 #define AUDIO_DEFAULT_OUTPUT_VOLUME 100
 
 // 如果使用 Duplex I2S 模式，请注释下面一行
